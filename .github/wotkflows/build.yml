@@ -1,0 +1,112 @@
+name: Build Firmware
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Router Build
+    runs-on: ubuntu-latest
+
+    container:
+      image: espressif/idf:release-v6.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ESP32-S3 firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          . /opt/esp/idf/export.sh
+          idf.py --version
+
+          idf.py set-target esp32s3
+          idf.py fullclean
+          idf.py build
+          idf.py partition-table
+          idf.py size
+
+          idf.py merge-bin \
+            -o build/merged.bin \
+            -f raw
+
+      - name: Verify build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s build/bootloader/bootloader.bin
+          test -s build/partition_table/partition-table.bin
+          test -s build/ota_data_initial.bin
+          test -s build/phy_init_data.bin
+          test -s build/esp32s3_nat_router.bin
+          test -s build/merged.bin
+          test -s build/flash_args
+
+          echo "Build outputs verified successfully."
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf artifacts
+          mkdir -p artifacts
+
+          cp build/bootloader/bootloader.bin \
+            artifacts/bootloader.bin
+
+          cp build/partition_table/partition-table.bin \
+            artifacts/partition-table.bin
+
+          cp build/ota_data_initial.bin \
+            artifacts/ota_data_initial.bin
+
+          cp build/phy_init_data.bin \
+            artifacts/phy_init_data.bin
+
+          cp build/esp32s3_nat_router.bin \
+            artifacts/esp32s3_nat_router.bin
+
+          cp build/merged.bin \
+            artifacts/merged.bin
+
+          cp build/flash_args \
+            artifacts/flash_args
+
+      - name: Verify artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for file in \
+            artifacts/bootloader.bin \
+            artifacts/partition-table.bin \
+            artifacts/ota_data_initial.bin \
+            artifacts/phy_init_data.bin \
+            artifacts/esp32s3_nat_router.bin \
+            artifacts/merged.bin \
+            artifacts/flash_args
+          do
+            test -s "$file"
+            echo "Verified: $file"
+          done
+
+          echo "All firmware artifacts verified successfully."
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Router
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
